@@ -9,14 +9,20 @@ const path = require('path');
 const cors = require('cors');
 const { zkVerifySession, Library, CurveType } = require('zkverifyjs');
 
-// --- DATABASE SETUP (JSON File) ---
-const DB_FILE = path.join(__dirname, 'db.json');
-if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify([]));
+// --- DATABASE SETUP (Firestore) ---
+const { db } = require('./lib/firebase-admin');
 
-function saveVerification(record) {
-  const data = JSON.parse(fs.readFileSync(DB_FILE));
-  data.push(record);
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+async function saveVerification(record) {
+  if (!db) {
+    console.warn('⚠️ Firestore not available, skipping save');
+    return;
+  }
+  try {
+    await db.collection('verifications').doc(record.id).set(record);
+    console.log(`✅ Verification saved to Firestore: ${record.id}`);
+  } catch (error) {
+    console.error('❌ Failed to save to Firestore:', error.message);
+  }
 }
 
 // --- SERVER SETUP ---
@@ -39,7 +45,8 @@ const loadArtifacts = () => {
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
-  socket.on('start_verification', async (credentials) => {
+  socket.on('start_verification', async (data) => {
+    const { credentials, firebaseUid } = data;
     let browser = null;
     try {
       socket.emit('log', '🚀 Initializing Secure Session...');
@@ -98,7 +105,10 @@ io.on('connection', (socket) => {
       socket.emit('log', `✅ Found CGPA: ${cgpa}`);
 
       // 3. GENERATE PROOF & SETTLE (Phase 2 Logic)
-      if (cgpa > 6.0) {
+      const CLAIM_THRESHOLD = 6.0;
+      const claimResult = cgpa > CLAIM_THRESHOLD;
+
+      if (claimResult) {
         socket.emit('log', '⚡ Generating ZK Proof...');
         const artifacts = loadArtifacts();
 
@@ -135,15 +145,20 @@ io.on('connection', (socket) => {
         const attestationId = result.attestationId || result.statementHash || 'pending';
         socket.emit('log', `🎉 Block Confirmed! Tx: ${txHash.slice(0, 10)}...`);
 
-        // 4. SAVE & FINISH
+        // 4. SAVE & FINISH (Enhanced Schema)
         const recordId = Math.random().toString(36).substr(2, 9);
 
-        saveVerification({
+        await saveVerification({
           id: recordId,
+          firebaseUid: firebaseUid || null,
           username: credentials.username,
+          verificationType: 'nitw_cgpa',
+          claimThreshold: CLAIM_THRESHOLD,
+          claimResult: claimResult,
           cgpa: cgpa,
           txHash: txHash,
           attestationId: attestationId,
+          status: 'verified',
           timestamp: new Date().toISOString()
         });
 

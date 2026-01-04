@@ -2,6 +2,8 @@
 import { useState, useEffect, useRef } from 'react';
 import io, { Socket } from 'socket.io-client';
 import { QRCodeSVG } from 'qrcode.react';
+import { auth } from '@/app/lib/firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
 
 interface VerificationResult {
     recordId: string;
@@ -9,6 +11,7 @@ interface VerificationResult {
 }
 
 export default function NITWVerifier() {
+    const [user, setUser] = useState<User | null>(null);
     const [creds, setCreds] = useState({ username: '', password: '' });
     const [logs, setLogs] = useState<string[]>([]);
     const [status, setStatus] = useState('Idle');
@@ -19,23 +22,33 @@ export default function NITWVerifier() {
     const socketRef = useRef<Socket | null>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
+    // Track auth state
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+            setUser(currentUser);
+        });
+        return () => unsubscribe();
+    }, []);
+
     useEffect(() => {
         const socket = io('http://localhost:4000');
         socketRef.current = socket;
 
         socket.on('connect', () => {
             setIsConnected(true);
-            addLog('🔗 Connected to Verification Engine');
+            addLog('Connected to verification engine');
         });
 
         socket.on('disconnect', () => {
             setIsConnected(false);
-            addLog('❌ Disconnected from Verification Engine');
+            addLog('Disconnected from verification engine');
         });
 
         socket.on('log', (msg: string) => {
-            setStatus(msg);
-            addLog(msg);
+            // Strip emojis from server logs
+            const cleanMsg = msg.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]/gu, '').trim();
+            setStatus(cleanMsg);
+            addLog(cleanMsg);
         });
 
         socket.on('screencast_frame', (frameData: string) => {
@@ -52,15 +65,15 @@ export default function NITWVerifier() {
 
         socket.on('verification_complete', (data: VerificationResult) => {
             setResult(data);
-            setStatus('✅ Proof Settled & Identity Minted!');
+            setStatus('Verified');
             setIsVerifying(false);
-            addLog('🎉 Verification complete! Proof settled on zkVerify chain.');
+            addLog('Verification complete. Proof settled on chain.');
         });
 
         socket.on('error', (err: string) => {
-            setStatus('❌ Error: ' + err);
+            setStatus('Error: ' + err);
             setIsVerifying(false);
-            addLog('❌ Error: ' + err);
+            addLog('Error: ' + err);
         });
 
         return () => { socket.disconnect(); };
@@ -74,15 +87,23 @@ export default function NITWVerifier() {
         setLogs([]);
         setIsVerifying(true);
         setStatus('Starting verification...');
-        socketRef.current.emit('start_verification', creds);
+
+        // Send credentials along with Firebase UID for tracking
+        const firebaseUid = user?.uid || null;
+        console.log('Sending firebaseUid:', firebaseUid); // Debug log
+        socketRef.current.emit('start_verification', {
+            credentials: creds,
+            firebaseUid: firebaseUid
+        });
     };
 
+
     return (
-        <main className="min-h-screen bg-slate-950 text-white p-8 font-sans">
+        <main className="min-h-screen bg-stone-100 text-slate-900 p-8 font-sans">
             {/* Back Button */}
             <button
                 onClick={() => window.location.href = '/dashboard'}
-                className="mb-6 text-sm text-slate-500 hover:text-white flex items-center gap-2 transition-colors"
+                className="mb-6 text-sm text-slate-500 hover:text-slate-700 flex items-center gap-2 transition-colors"
             >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path>
@@ -92,89 +113,89 @@ export default function NITWVerifier() {
 
             <div className="flex gap-8">
                 {/* LEFT: CONTROLS & LOGS */}
-                <div className="w-1/3 flex flex-col gap-6">
-                    <div className="flex items-center gap-3">
-                        <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-teal-400 bg-clip-text text-transparent">
-                            Verify CGPA
-                        </h1>
-                        <span className={`text-xs px-2 py-1 rounded-full ${isConnected ? 'bg-green-900 text-green-400' : 'bg-red-900 text-red-400'}`}>
-                            {isConnected ? 'Connected' : 'Disconnected'}
-                        </span>
+                <div className="w-1/3 flex flex-col gap-5">
+                    <div>
+                        <h1 className="text-xl font-semibold mb-1">Verify CGPA</h1>
+                        <p className="text-sm text-slate-500 pb-4 border-b border-slate-200">
+                            NIT Warangal Portal
+                        </p>
                     </div>
-                    <p className="text-slate-500 text-sm border-b border-slate-800 pb-4">
-                        NIT Warangal Portal • Live ZK Verification
-                    </p>
+
+                    {/* Connection Status */}
+                    <div className="text-xs text-slate-500">
+                        Status: {isConnected ? 'Connected' : 'Disconnected'}
+                    </div>
 
                     {!result ? (
-                        <div className="bg-slate-900 p-6 rounded-xl border border-slate-800">
+                        <div className="bg-white border border-slate-200 p-5 rounded">
                             <label className="text-xs text-slate-500 uppercase tracking-wider mb-2 block">Portal Credentials</label>
                             <input
                                 placeholder="Registration Number"
-                                className="w-full bg-slate-950 border border-slate-700 p-3 mb-4 rounded-lg focus:border-blue-500 focus:outline-none transition-colors"
+                                className="w-full bg-stone-50 border border-slate-200 p-3 mb-3 rounded text-sm focus:border-slate-400 focus:outline-none transition-colors"
                                 value={creds.username}
                                 onChange={e => setCreds({ ...creds, username: e.target.value })}
                             />
                             <input
                                 type="password"
                                 placeholder="Password"
-                                className="w-full bg-slate-950 border border-slate-700 p-3 mb-6 rounded-lg focus:border-blue-500 focus:outline-none transition-colors"
+                                className="w-full bg-stone-50 border border-slate-200 p-3 mb-5 rounded text-sm focus:border-slate-400 focus:outline-none transition-colors"
                                 value={creds.password}
                                 onChange={e => setCreds({ ...creds, password: e.target.value })}
                             />
                             <button
                                 onClick={handleStart}
                                 disabled={!isConnected || isVerifying || !creds.username || !creds.password}
-                                className="w-full bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-500 hover:to-teal-400 disabled:from-slate-700 disabled:to-slate-700 disabled:cursor-not-allowed text-white disabled:text-slate-500 font-bold py-3 rounded-xl transition-all"
+                                className="w-full bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white disabled:text-slate-500 font-medium py-3 rounded transition-colors text-sm"
                             >
                                 {isVerifying ? 'Verifying...' : 'Start Verification'}
                             </button>
                         </div>
                     ) : (
-                        <div className="bg-green-900/20 border border-green-500/50 p-6 rounded-xl flex flex-col items-center">
-                            <h2 className="text-xl font-bold text-green-400 mb-4">✅ Identity Verified</h2>
+                        <div className="bg-white border border-slate-200 p-5 rounded">
+                            <h2 className="text-sm font-medium text-slate-900 mb-4">Verified</h2>
 
-                            <div className="bg-white p-4 rounded-xl mb-4 shadow-xl">
+                            <div className="bg-slate-50 p-4 rounded mb-4 flex justify-center">
                                 <QRCodeSVG
                                     value={`${typeof window !== 'undefined' ? window.location.origin : ''}/verify/${result.recordId}`}
-                                    size={150}
+                                    size={120}
                                 />
                             </div>
 
-                            <p className="text-xs text-center text-green-300 mb-4">
-                                Scan to view Verified Profile
+                            <p className="text-xs text-center text-slate-500 mb-4">
+                                Scan to view verified profile
                             </p>
 
                             <a
                                 href={`/verify/${result.recordId}`}
                                 target="_blank"
-                                className="bg-green-600 text-white py-2 px-4 rounded-lg text-sm hover:bg-green-500 w-full text-center mb-3 transition-colors"
+                                className="block w-full text-center bg-slate-900 text-white py-2 rounded text-sm hover:bg-slate-800 transition-colors mb-3"
                             >
-                                Open Profile Page ↗
+                                Open Profile
                             </a>
 
                             <a
                                 href={`https://zkverify-testnet.subscan.io/extrinsic/${result.txHash}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-xs text-green-400 hover:underline"
+                                className="block text-xs text-center text-slate-500 hover:text-slate-700 transition-colors font-mono"
                             >
-                                View Transaction: {result.txHash.slice(0, 20)}...
+                                Tx: {result.txHash.slice(0, 24)}...
                             </a>
                         </div>
                     )}
 
                     {/* STATUS */}
-                    <div className="bg-slate-900 rounded-xl border border-slate-800 p-4">
-                        <label className="text-xs text-slate-500 uppercase tracking-wider mb-2 block">Status</label>
-                        <p className="text-sm text-blue-400">{status}</p>
+                    <div className="bg-white border border-slate-200 rounded p-4">
+                        <label className="text-xs text-slate-500 uppercase tracking-wider mb-1 block">Current Status</label>
+                        <p className="text-sm text-slate-700">{status}</p>
                     </div>
 
                     {/* LOGS */}
-                    <div className="flex-1 bg-slate-950 rounded-xl border border-slate-800 p-4 overflow-y-auto max-h-[300px]">
+                    <div className="flex-1 bg-white border border-slate-200 rounded p-4 overflow-y-auto max-h-[250px]">
                         <label className="text-xs text-slate-500 uppercase tracking-wider mb-2 block">Activity Log</label>
-                        <div className="text-xs text-green-400 space-y-1 font-mono">
+                        <div className="text-xs text-slate-600 space-y-1 font-mono">
                             {logs.length === 0 ? (
-                                <span className="text-slate-600">Waiting for verification...</span>
+                                <span className="text-slate-400">Waiting for verification...</span>
                             ) : (
                                 logs.map((l, i) => <div key={i}>{l}</div>)
                             )}
@@ -182,29 +203,27 @@ export default function NITWVerifier() {
                     </div>
                 </div>
 
-                {/* RIGHT: LIVE STREAM */}
-                <div className="w-2/3 flex flex-col gap-6">
-                    <div className="relative w-full aspect-video bg-slate-900 rounded-2xl border-2 border-slate-800 overflow-hidden shadow-2xl">
+                {/* RIGHT: SESSION VIEW */}
+                <div className="w-2/3 flex flex-col gap-5">
+                    <div className="relative w-full aspect-video bg-white border border-slate-200 rounded overflow-hidden">
                         {isVerifying && (
-                            <div className="absolute top-4 left-4 bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded animate-pulse z-10">
-                                ● LIVE SERVER VIEW
+                            <div className="absolute top-3 left-3 bg-slate-700 text-white text-[10px] font-medium px-2 py-1 rounded z-10">
+                                Session active
                             </div>
                         )}
                         {!isVerifying && !result && (
                             <div className="absolute inset-0 flex items-center justify-center">
-                                <div className="text-center text-slate-600">
-                                    <div className="text-6xl mb-4">🔐</div>
-                                    <p className="text-lg">Enter credentials and start verification</p>
-                                    <p className="text-sm mt-2">The browser session will stream here live</p>
+                                <div className="text-center text-slate-400">
+                                    <p className="text-sm">Enter credentials to begin verification</p>
+                                    <p className="text-xs mt-1">Session view will appear here</p>
                                 </div>
                             </div>
                         )}
                         {result && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-green-900/30">
+                            <div className="absolute inset-0 flex items-center justify-center bg-slate-50">
                                 <div className="text-center">
-                                    <div className="text-6xl mb-4">✅</div>
-                                    <p className="text-2xl font-bold text-green-400">Verification Complete</p>
-                                    <p className="text-sm mt-2 text-green-300">Proof settled on zkVerify blockchain</p>
+                                    <p className="text-sm font-medium text-slate-700">Verification Complete</p>
+                                    <p className="text-xs mt-1 text-slate-500">Proof settled on chain</p>
                                 </div>
                             </div>
                         )}
