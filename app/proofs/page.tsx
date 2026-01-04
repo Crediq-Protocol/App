@@ -11,7 +11,8 @@ interface VerificationRecord {
     verificationType: string;
     claimThreshold: number;
     claimResult: boolean;
-    cgpa: number;
+    cgpa?: number;
+    totalSolved?: number;
     txHash: string;
     status: string;
     timestamp: string;
@@ -22,7 +23,7 @@ const ProofCard = ({ proof, onClick }: { proof: VerificationRecord; onClick: () 
     const getTypeLabel = (type: string) => {
         const labels: Record<string, string> = {
             'nitw_cgpa': 'Academic',
-            'leetcode': 'Developer',
+            'leetcode_solved': 'Developer',
             'income': 'Finance',
         };
         return labels[type] || 'Credential';
@@ -31,7 +32,7 @@ const ProofCard = ({ proof, onClick }: { proof: VerificationRecord; onClick: () 
     const getTypeColor = (type: string) => {
         const colors: Record<string, string> = {
             'nitw_cgpa': 'bg-purple-100 text-purple-700',
-            'leetcode': 'bg-blue-100 text-blue-700',
+            'leetcode_solved': 'bg-blue-100 text-blue-700',
             'income': 'bg-green-100 text-green-700',
         };
         return colors[type] || 'bg-slate-100 text-slate-700';
@@ -55,8 +56,14 @@ const ProofCard = ({ proof, onClick }: { proof: VerificationRecord; onClick: () 
             </div>
 
             {/* Claim */}
-            <h3 className="text-slate-900 font-medium text-sm mb-1">CGPA &gt; {proof.claimThreshold}</h3>
-            <p className="text-slate-500 text-xs mb-4">NIT Warangal</p>
+            <h3 className="text-slate-900 font-medium text-sm mb-1">
+                {proof.verificationType === 'leetcode_solved'
+                    ? `Solved ${proof.claimThreshold}+ problems`
+                    : `CGPA > ${proof.claimThreshold}`}
+            </h3>
+            <p className="text-slate-500 text-xs mb-4">
+                {proof.verificationType === 'leetcode_solved' ? 'LeetCode' : 'NIT Warangal'}
+            </p>
 
             {/* Footer */}
             <div className="flex items-center justify-between pt-3 border-t border-slate-100">
@@ -97,8 +104,12 @@ const ProofModal = ({ proof, onClose }: { proof: VerificationRecord; onClose: ()
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
                         </svg>
                     </div>
-                    <h2 className="text-lg font-semibold text-slate-900">Verified Student</h2>
-                    <p className="text-sm text-slate-500">NIT Warangal</p>
+                    <h2 className="text-lg font-semibold text-slate-900">
+                        {proof.verificationType === 'leetcode_solved' ? 'Verified Developer' : 'Verified Student'}
+                    </h2>
+                    <p className="text-sm text-slate-500">
+                        {proof.verificationType === 'leetcode_solved' ? 'LeetCode' : 'NIT Warangal'}
+                    </p>
                 </div>
 
                 {/* QR Code */}
@@ -120,7 +131,11 @@ const ProofModal = ({ proof, onClose }: { proof: VerificationRecord; onClose: ()
                     </div>
                     <div className="flex justify-between py-2 border-b border-slate-100">
                         <span className="text-xs text-slate-500">Claim</span>
-                        <span className="text-xs font-medium">CGPA &gt; {proof.claimThreshold}</span>
+                        <span className="text-xs font-medium">
+                            {proof.verificationType === 'leetcode_solved'
+                                ? `Solved ${proof.claimThreshold}+ problems`
+                                : `CGPA > ${proof.claimThreshold}`}
+                        </span>
                     </div>
                     <div className="flex justify-between py-2 border-b border-slate-100">
                         <span className="text-xs text-slate-500">Result</span>

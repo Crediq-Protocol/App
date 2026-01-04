@@ -176,8 +176,8 @@ export default function Dashboard() {
             claim: "Prove you’ve solved 5+ problems on LeetCode",
             details: "Activity is verified without revealing submissions or history.",
             tags: ["Developer", "Activity", "Privacy"],
-            isLive: false,
-            onAction: () => { }
+            isLive: true,
+            onAction: () => router.push('/verify/leetcode')
         },
         {
             title: "Account Ownership",
@@ -217,9 +217,12 @@ export default function Dashboard() {
         <div className="min-h-screen bg-[#f7f5f4] text-slate-900 flex font-sans">
             {/* SIDEBAR */}
             <aside className="w-72 bg-white border-r border-slate-200 p-6 flex flex-col hidden lg:flex">
-                <div className="mb-10 flex items-center gap-3 px-2">
-                    <img src="/logo.png" alt="Crediq Logo" className="w-10 h-10 object-contain" />
-                    <span className="font-medium text-lg tracking-tight text-slate-900">Crediq Protocol</span>
+                <div className="mb-10 px-2">
+                    <div className="flex items-center gap-2">
+                        <img src="/logo.png" alt="Crediq Logo" className="w-9 h-9 object-contain flex-shrink-0" />
+                        <span className="font-medium text-slate-900 whitespace-nowrap">Crediq Protocol</span>
+                        <span className="text-[8px] font-medium uppercase text-slate-400 flex-shrink-0">beta</span>
+                    </div>
                 </div>
 
                 <div className="px-2 mb-8">
@@ -261,6 +264,16 @@ export default function Dashboard() {
                     {verifications.map((v, idx) => (
                         <VerificationCard key={idx} {...v} shaderConfig={getShaderConfig(idx)} />
                     ))}
+                </div>
+
+                {/* Footer Strip */}
+                <div className="max-w-5xl mx-auto mt-14 mb-8 text-center group cursor-default">
+                    <div className="inline-flex items-center gap-3 px-6 py-3 rounded-full bg-slate-100 border border-slate-200 transition-all duration-300 hover:bg-slate-200 hover:border-slate-300 hover:shadow-sm">
+                        <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                        <p className="text-slate-600 text-base font-medium tracking-tight">
+                            More verifications coming soon · In collaboration with institutional partners
+                        </p>
+                    </div>
                 </div>
             </main>
         </div>

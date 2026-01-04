@@ -10,9 +10,9 @@ interface VerificationResult {
     txHash: string;
 }
 
-export default function NITWVerifier() {
+export default function LeetCodeVerifier() {
     const [user, setUser] = useState<User | null>(null);
-    const [creds, setCreds] = useState({ username: '', password: '' });
+    const [username, setUsername] = useState('');
     const [logs, setLogs] = useState<string[]>([]);
     const [status, setStatus] = useState('Idle');
     const [result, setResult] = useState<VerificationResult | null>(null);
@@ -82,17 +82,16 @@ export default function NITWVerifier() {
     const addLog = (msg: string) => setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
 
     const handleStart = () => {
-        if (!socketRef.current || !creds.username || !creds.password) return;
+        if (!socketRef.current || !username.trim()) return;
         setResult(null);
         setLogs([]);
         setIsVerifying(true);
         setStatus('Starting verification...');
 
-        // Send credentials along with Firebase UID for tracking
+        // Send username along with Firebase UID for tracking
         const firebaseUid = user?.uid || null;
-        console.log('Sending firebaseUid:', firebaseUid); // Debug log
-        socketRef.current.emit('start_verification', {
-            credentials: creds,
+        socketRef.current.emit('start_leetcode_verification', {
+            username: username.trim(),
             firebaseUid: firebaseUid
         });
     };
@@ -115,9 +114,9 @@ export default function NITWVerifier() {
                 {/* LEFT: CONTROLS & LOGS */}
                 <div className="w-1/3 flex flex-col gap-5">
                     <div>
-                        <h1 className="text-xl font-semibold mb-1">Verify CGPA</h1>
+                        <h1 className="text-xl font-semibold mb-1">Verify LeetCode</h1>
                         <p className="text-sm text-slate-500 pb-4 border-b border-slate-200">
-                            NIT Warangal Portal
+                            Public Profile Verification
                         </p>
                     </div>
 
@@ -128,23 +127,19 @@ export default function NITWVerifier() {
 
                     {!result ? (
                         <div className="bg-white border border-slate-200 p-5 rounded">
-                            <label className="text-xs text-slate-500 uppercase tracking-wider mb-2 block">Portal Credentials</label>
+                            <label className="text-xs text-slate-500 uppercase tracking-wider mb-2 block">LeetCode Username</label>
                             <input
-                                placeholder="Registration Number"
-                                className="w-full bg-stone-50 border border-slate-200 p-3 mb-3 rounded text-sm focus:border-slate-400 focus:outline-none transition-colors"
-                                value={creds.username}
-                                onChange={e => setCreds({ ...creds, username: e.target.value })}
-                            />
-                            <input
-                                type="password"
-                                placeholder="Password"
+                                placeholder="e.g., neal_wu"
                                 className="w-full bg-stone-50 border border-slate-200 p-3 mb-5 rounded text-sm focus:border-slate-400 focus:outline-none transition-colors"
-                                value={creds.password}
-                                onChange={e => setCreds({ ...creds, password: e.target.value })}
+                                value={username}
+                                onChange={e => setUsername(e.target.value)}
                             />
+                            <p className="text-xs text-slate-400 mb-4">
+                                Your LeetCode profile must be public. We'll verify you've solved 5+ problems.
+                            </p>
                             <button
                                 onClick={handleStart}
-                                disabled={!isConnected || isVerifying || !creds.username || !creds.password}
+                                disabled={!isConnected || isVerifying || !username.trim()}
                                 className="w-full bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white disabled:text-slate-500 font-medium py-3 rounded transition-colors text-sm"
                             >
                                 {isVerifying ? 'Verifying...' : 'Start Verification'}
@@ -214,8 +209,8 @@ export default function NITWVerifier() {
                         {!isVerifying && !result && (
                             <div className="absolute inset-0 flex items-center justify-center">
                                 <div className="text-center text-slate-400">
-                                    <p className="text-sm">Enter credentials to begin verification</p>
-                                    <p className="text-xs mt-1">Session view will appear here</p>
+                                    <p className="text-sm">Enter your LeetCode username to begin</p>
+                                    <p className="text-xs mt-1">Live session view will appear here</p>
                                 </div>
                             </div>
                         )}

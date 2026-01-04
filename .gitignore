@@ -42,3 +42,7 @@ next-env.d.ts
 
 # Firebase
 serviceAccountKey.json
+credsetu-firebase-adminsdk-fbsvc-4f558f97cc.json
+
+# Markdown files (documentation)
+*.md

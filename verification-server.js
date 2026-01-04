@@ -3,11 +3,16 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const puppeteer = require('puppeteer');
+const puppeteerExtra = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const snarkjs = require('snarkjs');
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
 const { zkVerifySession, Library, CurveType } = require('zkverifyjs');
+
+// Configure stealth plugin for LeetCode
+puppeteerExtra.use(StealthPlugin());
 
 // --- DATABASE SETUP (Firestore) ---
 const { db } = require('./lib/firebase-admin');
@@ -54,7 +59,13 @@ io.on('connection', (socket) => {
       // 1. LAUNCH BROWSER (CDP STREAM)
       browser = await puppeteer.launch({
         headless: "new",
-        args: ['--no-sandbox', '--window-size=1280,720']
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--window-size=1280,720'
+        ]
       });
       const page = await browser.newPage();
       await page.setViewport({ width: 1280, height: 720 });
@@ -170,6 +181,194 @@ io.on('connection', (socket) => {
       } else {
         throw new Error("CGPA too low.");
       }
+
+    } catch (error) {
+      console.error(error);
+      socket.emit('error', error.message);
+    } finally {
+      if (browser) await browser.close();
+    }
+  });
+
+  // =============================================
+  // LEETCODE VERIFICATION (Public Profile)
+  // =============================================
+  socket.on('start_leetcode_verification', async (data) => {
+    const { username, firebaseUid } = data;
+    let browser = null;
+
+    try {
+      socket.emit('log', '🚀 Initializing LeetCode Session (Stealth Mode)...');
+
+      // 1. Launch browser with STEALTH plugin to bypass Cloudflare
+      browser = await puppeteerExtra.launch({
+        headless: "new",
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage', // Memory optimization
+          '--disable-acceleration',
+          '--disable-gpu',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-blink-features=AutomationControlled',
+          '--window-size=1280,720'
+        ]
+      });
+      const page = await browser.newPage();
+      await page.setViewport({ width: 1280, height: 720 });
+
+      // Set realistic user agent
+      await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+      // CDP Screencast
+      const cdp = await page.createCDPSession();
+      await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 80, maxWidth: 640 });
+      cdp.on('Page.screencastFrame', ({ data: frameData, sessionId }) => {
+        socket.emit('screencast_frame', frameData);
+        cdp.send('Page.screencastFrameAck', { sessionId });
+      });
+
+      // 2. Navigate to LeetCode profile
+      socket.emit('log', '🌍 Navigating to LeetCode Profile...');
+      await page.goto(`https://leetcode.com/u/${username}/`, {
+        waitUntil: 'networkidle2',
+        timeout: 45000
+      });
+
+      // Wait longer for Cloudflare challenge to pass and React to hydrate
+      socket.emit('log', '⏳ Waiting for page to load...');
+      await new Promise(r => setTimeout(r, 5000));
+
+      // Check if we're stuck on Cloudflare challenge
+      const pageUrl = page.url();
+      const pageTitle = await page.title();
+
+      // If still on challenge, wait more
+      if (pageTitle.toLowerCase().includes('just a moment') || pageUrl.includes('challenge')) {
+        socket.emit('log', '🔄 Bypassing security check...');
+        await new Promise(r => setTimeout(r, 5000));
+      }
+
+      // Now check for actual LeetCode 404 (look for specific elements)
+      const is404 = await page.evaluate(() => {
+        // LeetCode shows a specific 404 page with "Page Not Found" heading
+        const h1 = document.querySelector('h1');
+        if (h1 && h1.innerText.includes('Page Not Found')) return true;
+
+        // Also check if we see username/profile elements (means profile exists)
+        const hasProfileData = document.body.innerText.includes('Solved') ||
+          document.body.innerText.includes('Rank') ||
+          document.body.innerText.includes('submissions');
+        if (hasProfileData) return false;
+
+        // If page is mostly empty or has error, it might be blocked
+        return document.body.innerText.length < 500;
+      });
+
+      if (is404) {
+        throw new Error(`Profile "${username}" not found or page blocked`);
+      }
+
+      // 3. Scrape stats
+      socket.emit('log', '📊 Reading Profile Stats...');
+
+      const stats = await page.evaluate(() => {
+        const text = document.body.innerText;
+
+        // Try multiple patterns for solved count
+        // Pattern 1: "X/Y Solved" format
+        let solvedMatch = text.match(/(\d+)\s*\/\s*\d+\s*Solved/i);
+        // Pattern 2: Text near "Solved" 
+        if (!solvedMatch) {
+          solvedMatch = text.match(/Solved\s*(\d+)/i);
+        }
+        // Pattern 3: Look for total in stats section
+        if (!solvedMatch) {
+          const totalMatch = text.match(/(\d+)\s*Solved/i);
+          solvedMatch = totalMatch;
+        }
+
+        // Get breakdown
+        const easyMatch = text.match(/Easy\s*(\d+)/i);
+        const mediumMatch = text.match(/Medium\s*(\d+)/i);
+        const hardMatch = text.match(/Hard\s*(\d+)/i);
+
+        // Calculate total from breakdown if main match failed
+        let totalSolved = solvedMatch ? parseInt(solvedMatch[1]) : null;
+        if (!totalSolved && (easyMatch || mediumMatch || hardMatch)) {
+          totalSolved = (easyMatch ? parseInt(easyMatch[1]) : 0) +
+            (mediumMatch ? parseInt(mediumMatch[1]) : 0) +
+            (hardMatch ? parseInt(hardMatch[1]) : 0);
+        }
+
+        return {
+          totalSolved: totalSolved,
+          easy: easyMatch ? parseInt(easyMatch[1]) : 0,
+          medium: mediumMatch ? parseInt(mediumMatch[1]) : 0,
+          hard: hardMatch ? parseInt(hardMatch[1]) : 0
+        };
+      });
+
+      if (stats.totalSolved === null) {
+        throw new Error('Could not find solved count on profile. Is the profile public?');
+      }
+
+      socket.emit('log', `✅ Found: ${stats.totalSolved} problems solved (E:${stats.easy} M:${stats.medium} H:${stats.hard})`);
+
+      // 4. Threshold check
+      const CLAIM_THRESHOLD = 5;
+      const claimResult = stats.totalSolved >= CLAIM_THRESHOLD;
+
+      if (!claimResult) {
+        throw new Error(`Only ${stats.totalSolved} problems solved (need ${CLAIM_THRESHOLD}+)`);
+      }
+
+      // 5. Generate ZK Proof
+      socket.emit('log', '⚡ Generating ZK Proof...');
+      const artifacts = loadArtifacts();
+      const { proof, publicSignals } = await snarkjs.groth16.fullProve(
+        { a: 6, b: 7 },
+        artifacts.wasm,
+        artifacts.zkey
+      );
+
+      // 6. Submit to zkVerify
+      socket.emit('log', '⛓️ Submitting to zkVerify Chain...');
+      const session = await zkVerifySession.start()
+        .Volta()
+        .withAccount(process.env.ZKV_SEED_PHRASE);
+
+      const { transactionResult } = await session.verify()
+        .groth16({ library: Library.snarkjs, curve: CurveType.bn254 })
+        .execute({ proofData: { vk: artifacts.vk, proof, publicSignals } });
+
+      socket.emit('log', '⏳ Waiting for block finality...');
+      const result = await transactionResult;
+      const txHash = result.txHash;
+      const attestationId = result.attestationId || result.statementHash || 'pending';
+
+      socket.emit('log', `🎉 Block Confirmed! Tx: ${txHash.slice(0, 10)}...`);
+
+      // 7. Save to Firestore
+      const recordId = Math.random().toString(36).substr(2, 9);
+      await saveVerification({
+        id: recordId,
+        firebaseUid: firebaseUid || null,
+        username: username,
+        verificationType: 'leetcode_solved',
+        claimThreshold: CLAIM_THRESHOLD,
+        claimResult: claimResult,
+        totalSolved: stats.totalSolved,
+        breakdown: { easy: stats.easy, medium: stats.medium, hard: stats.hard },
+        txHash: txHash,
+        attestationId: attestationId,
+        status: 'verified',
+        timestamp: new Date().toISOString()
+      });
+
+      socket.emit('verification_complete', { recordId, txHash });
 
     } catch (error) {
       console.error(error);
