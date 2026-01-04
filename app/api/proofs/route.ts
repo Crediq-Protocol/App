@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import admin from 'firebase-admin';
-import fs from 'fs';
-import path from 'path';
 
 function getFirestore() {
     if (admin.apps.length) {
@@ -9,14 +7,18 @@ function getFirestore() {
     }
 
     try {
-        const serviceAccountPath = path.join(process.cwd(), 'serviceAccountKey.json');
+        let serviceAccount = null;
 
-        if (!fs.existsSync(serviceAccountPath)) {
-            console.warn('⚠️ serviceAccountKey.json not found');
-            return null;
+        // Load from environment variable (for Vercel/production)
+        if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+            console.log('📦 Loading Firebase credentials from environment variable...');
+            serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
         }
 
-        const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+        if (!serviceAccount) {
+            console.warn('⚠️ Firebase credentials not found. Set FIREBASE_SERVICE_ACCOUNT env var');
+            return null;
+        }
 
         admin.initializeApp({
             credential: admin.credential.cert(serviceAccount)
@@ -50,11 +52,12 @@ export async function GET(request: NextRequest) {
             .limit(10)
             .get();
 
-        const proofs = snapshot.docs.map((doc: any) => doc.data());
+        const proofs = snapshot.docs.map((doc: FirebaseFirestore.QueryDocumentSnapshot) => doc.data());
 
         return NextResponse.json({ proofs });
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Error fetching proofs:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
 }

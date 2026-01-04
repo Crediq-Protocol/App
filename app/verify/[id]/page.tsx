@@ -1,6 +1,4 @@
 import admin from 'firebase-admin';
-import fs from 'fs';
-import path from 'path';
 
 interface VerificationRecord {
     id: string;
@@ -9,7 +7,9 @@ interface VerificationRecord {
     verificationType: string;
     claimThreshold: number;
     claimResult: boolean;
-    cgpa: number;
+    cgpa?: number;
+    totalSolved?: number;
+    breakdown?: { easy: number; medium: number; hard: number };
     txHash: string;
     attestationId: string;
     status: string;
@@ -22,14 +22,18 @@ function getFirestore() {
     }
 
     try {
-        const serviceAccountPath = path.join(process.cwd(), 'serviceAccountKey.json');
+        let serviceAccount = null;
 
-        if (!fs.existsSync(serviceAccountPath)) {
-            console.warn('⚠️ serviceAccountKey.json not found');
-            return null;
+        // Load from environment variable (for Vercel/production)
+        if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+            console.log('📦 Loading Firebase credentials from environment variable...');
+            serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
         }
 
-        const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+        if (!serviceAccount) {
+            console.warn('⚠️ Firebase credentials not found. Set FIREBASE_SERVICE_ACCOUNT env var');
+            return null;
+        }
 
         admin.initializeApp({
             credential: admin.credential.cert(serviceAccount)
@@ -72,6 +76,11 @@ export default async function VerifiedPage({ params }: { params: Promise<{ id: s
         );
     }
 
+    // Determine the verification type for display
+    const isLeetCode = record.verificationType === 'leetcode_solved';
+    const institutionName = isLeetCode ? 'LeetCode' : 'NIT Warangal';
+    const claimLabel = isLeetCode ? `Problems Solved ≥ ${record.claimThreshold}` : `CGPA > ${record.claimThreshold}`;
+
     return (
         <div className="min-h-screen bg-stone-100 text-slate-900 font-sans flex flex-col items-center justify-center p-6">
             <div className="bg-white border border-slate-200 rounded p-8 max-w-md w-full">
@@ -83,18 +92,18 @@ export default async function VerifiedPage({ params }: { params: Promise<{ id: s
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
                         </svg>
                     </div>
-                    <h1 className="text-lg font-semibold">Verified Student</h1>
-                    <p className="text-sm text-slate-500">NIT Warangal</p>
+                    <h1 className="text-lg font-semibold">Verified {isLeetCode ? 'Developer' : 'Student'}</h1>
+                    <p className="text-sm text-slate-500">{institutionName}</p>
                 </div>
 
                 <div className="space-y-3 mb-6">
                     <div className="flex justify-between py-2 border-b border-slate-100">
-                        <span className="text-sm text-slate-500">Candidate</span>
+                        <span className="text-sm text-slate-500">{isLeetCode ? 'Username' : 'Candidate'}</span>
                         <span className="text-sm font-mono">{record.username}</span>
                     </div>
                     <div className="flex justify-between py-2 border-b border-slate-100">
                         <span className="text-sm text-slate-500">Claim</span>
-                        <span className="text-sm font-medium">CGPA &gt; {record.claimThreshold}</span>
+                        <span className="text-sm font-medium">{claimLabel}</span>
                     </div>
                     <div className="flex justify-between py-2 border-b border-slate-100">
                         <span className="text-sm text-slate-500">Result</span>
@@ -102,6 +111,12 @@ export default async function VerifiedPage({ params }: { params: Promise<{ id: s
                             {record.claimResult ? 'Passed' : 'Failed'}
                         </span>
                     </div>
+                    {isLeetCode && record.totalSolved && (
+                        <div className="flex justify-between py-2 border-b border-slate-100">
+                            <span className="text-sm text-slate-500">Problems Solved</span>
+                            <span className="text-sm">{record.totalSolved}</span>
+                        </div>
+                    )}
                     <div className="flex justify-between py-2 border-b border-slate-100">
                         <span className="text-sm text-slate-500">Status</span>
                         <span className="text-sm capitalize">{record.status}</span>
